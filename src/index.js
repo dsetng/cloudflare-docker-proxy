@@ -7,17 +7,17 @@ const dockerHub = "https://registry-1.docker.io";
 
 const routes = {
   // production
-  "docker.libcuda.so": dockerHub,
-  "quay.libcuda.so": "https://quay.io",
-  "gcr.libcuda.so": "https://gcr.io",
-  "k8s-gcr.libcuda.so": "https://k8s.gcr.io",
-  "k8s.libcuda.so": "https://registry.k8s.io",
-  "ghcr.libcuda.so": "https://ghcr.io",
-  "cloudsmith.libcuda.so": "https://docker.cloudsmith.io",
-  "ecr.libcuda.so": "https://public.ecr.aws",
+  "docker.dstrouter.top": dockerHub,
+  "quay.dstrouter.top": "https://quay.io",
+  "gcr.dstrouter.top": "https://gcr.io",
+  "k8s-gcr.dstrouter.top": "https://k8s.gcr.io",
+  "k8s.dstrouter.top": "https://registry.k8s.io",
+  "ghcr.dstrouter.top": "https://ghcr.io",
+  "cloudsmith.dstrouter.top": "https://docker.cloudsmith.io",
+  "ecr.dstrouter.top": "https://public.ecr.aws",
 
   // staging
-  "docker-staging.libcuda.so": dockerHub,
+  "docker-staging.dstrouter.top": dockerHub,
 };
 
 function routeByHosts(host) {
@@ -73,83 +73,3 @@ async function handleRequest(request) {
         status: 401,
         headers: headers,
       });
-    } else {
-      return resp;
-    }
-  }
-  // get token
-  if (url.pathname == "/v2/auth") {
-    const newUrl = new URL(upstream + "/v2/");
-    const resp = await fetch(newUrl.toString(), {
-      method: "GET",
-      redirect: "follow",
-    });
-    if (resp.status !== 401) {
-      return resp;
-    }
-    const authenticateStr = resp.headers.get("WWW-Authenticate");
-    if (authenticateStr === null) {
-      return resp;
-    }
-    const wwwAuthenticate = parseAuthenticate(authenticateStr);
-    let scope = url.searchParams.get("scope");
-    // autocomplete repo part into scope for DockerHub library images
-    // Example: repository:busybox:pull => repository:library/busybox:pull
-    if (scope && isDockerHub) {
-      let scopeParts = scope.split(":");
-      if (scopeParts.length == 3 && !scopeParts[1].includes("/")) {
-        scopeParts[1] = "library/" + scopeParts[1];
-        scope = scopeParts.join(":");
-      }
-    }
-    return await fetchToken(wwwAuthenticate, scope, authorization);
-  }
-  // redirect for DockerHub library images
-  // Example: /v2/busybox/manifests/latest => /v2/library/busybox/manifests/latest
-  if (isDockerHub) {
-    const pathParts = url.pathname.split("/");
-    if (pathParts.length == 5) {
-      pathParts.splice(2, 0, "library");
-      const redirectUrl = new URL(url);
-      redirectUrl.pathname = pathParts.join("/");
-      return Response.redirect(redirectUrl, 301);
-    }
-  }
-  // foward requests
-  const newUrl = new URL(upstream + url.pathname);
-  const newReq = new Request(newUrl, {
-    method: request.method,
-    headers: request.headers,
-    redirect: "follow",
-  });
-  return await fetch(newReq);
-}
-
-function parseAuthenticate(authenticateStr) {
-  // sample: Bearer realm="https://auth.ipv6.docker.com/token",service="registry.docker.io"
-  // match strings after =" and before "
-  const re = /(?<=\=")(?:\\.|[^"\\])*(?=")/g;
-  const matches = authenticateStr.match(re);
-  if (matches == null || matches.length < 2) {
-    throw new Error(`invalid Www-Authenticate Header: ${authenticateStr}`);
-  }
-  return {
-    realm: matches[0],
-    service: matches[1],
-  };
-}
-
-async function fetchToken(wwwAuthenticate, scope, authorization) {
-  const url = new URL(wwwAuthenticate.realm);
-  if (wwwAuthenticate.service.length) {
-    url.searchParams.set("service", wwwAuthenticate.service);
-  }
-  if (scope) {
-    url.searchParams.set("scope", scope);
-  }
-  headers = new Headers();
-  if (authorization) {
-    headers.set("Authorization", authorization);
-  }
-  return await fetch(url, { method: "GET", headers: headers });
-}
